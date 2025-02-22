@@ -15,15 +15,17 @@ const Mine = () => (
 );
 
 const Minesweeper = () => {
+  const BOARD_SIZE = 10;
+  const MINES_COUNT = 10;
+
   const [board, setBoard] = useState([]);
   const [gameOver, setGameOver] = useState(false);
   const [win, setWin] = useState(false);
   const [flagCount, setFlagCount] = useState(0);
-
-  const BOARD_SIZE = 10;
-  const MINES_COUNT = 10;
+  const [isFlagMode, setIsFlagMode] = useState(false);
 
   const initializeBoard = () => {
+    // 創建空棋盤
     const newBoard = Array(BOARD_SIZE).fill().map(() =>
       Array(BOARD_SIZE).fill().map(() => ({
         isMine: false,
@@ -33,6 +35,7 @@ const Minesweeper = () => {
       }))
     );
 
+    // 隨機放置地雷
     let minesPlaced = 0;
     while (minesPlaced < MINES_COUNT) {
       const row = Math.floor(Math.random() * BOARD_SIZE);
@@ -43,6 +46,7 @@ const Minesweeper = () => {
       }
     }
 
+    // 計算每個格子周圍的地雷數
     for (let row = 0; row < BOARD_SIZE; row++) {
       for (let col = 0; col < BOARD_SIZE; col++) {
         if (!newBoard[row][col].isMine) {
@@ -65,14 +69,13 @@ const Minesweeper = () => {
     setGameOver(false);
     setWin(false);
     setFlagCount(0);
+    setIsFlagMode(false);
   };
 
-  // 新增：檢查某個位置是否在遊戲板範圍內
   const isValidCell = (row, col) => {
     return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE;
   };
 
-  // 新增：獲取周圍的格子
   const getNeighbors = (row, col) => {
     const neighbors = [];
     for (let i = -1; i <= 1; i++) {
@@ -88,7 +91,6 @@ const Minesweeper = () => {
     return neighbors;
   };
 
-  // 修改：點擊數字時的處理
   const handleNumberClick = (row, col) => {
     if (!board[row][col].isRevealed || board[row][col].neighborMines === 0) {
       return;
@@ -99,10 +101,9 @@ const Minesweeper = () => {
       count + (board[r][c].isFlagged ? 1 : 0), 0
     );
 
-    // 如果旗子數量等於數字，揭開未標記的周圍格子
     if (flaggedCount === board[row][col].neighborMines) {
       let hitMine = false;
-      const newBoard = [...board];
+      const newBoard = board.map(row => [...row]);
 
       neighbors.forEach(([r, c]) => {
         if (!newBoard[r][c].isFlagged && !newBoard[r][c].isRevealed) {
@@ -110,7 +111,7 @@ const Minesweeper = () => {
             hitMine = true;
             newBoard[r][c].isRevealed = true;
           } else {
-            revealCell(r, c);
+            revealCell(r, c, newBoard);
           }
         }
       });
@@ -118,38 +119,36 @@ const Minesweeper = () => {
       if (hitMine) {
         setGameOver(true);
       }
+      setBoard(newBoard);
     }
   };
 
-  const revealCell = (row, col) => {
-    if (gameOver || win || board[row][col].isRevealed || board[row][col].isFlagged) {
+  const revealCell = (row, col, currentBoard = null) => {
+    if (gameOver || win) return;
+
+    const newBoard = currentBoard || board.map(row => [...row]);
+    if (!isValidCell(row, col) || newBoard[row][col].isRevealed || newBoard[row][col].isFlagged) {
       return;
     }
 
-    const newBoard = [...board];
-    
+    newBoard[row][col].isRevealed = true;
+
     if (newBoard[row][col].isMine) {
-      newBoard[row][col].isRevealed = true;
       setBoard(newBoard);
       setGameOver(true);
       return;
     }
 
-    const floodFill = (r, c) => {
-      if (!isValidCell(r, c) || newBoard[r][c].isRevealed || newBoard[r][c].isFlagged) {
-        return;
-      }
+    if (newBoard[row][col].neighborMines === 0) {
+      getNeighbors(row, col).forEach(([r, c]) => {
+        revealCell(r, c, newBoard);
+      });
+    }
 
-      newBoard[r][c].isRevealed = true;
-
-      if (newBoard[r][c].neighborMines === 0) {
-        getNeighbors(r, c).forEach(([nr, nc]) => floodFill(nr, nc));
-      }
-    };
-
-    floodFill(row, col);
-    setBoard(newBoard);
-    checkWin(newBoard);
+    if (!currentBoard) {
+      setBoard(newBoard);
+      checkWin(newBoard);
+    }
   };
 
   const toggleFlag = (row, col) => {
@@ -157,7 +156,7 @@ const Minesweeper = () => {
       return;
     }
 
-    const newBoard = [...board];
+    const newBoard = board.map(row => [...row]);
     if (!newBoard[row][col].isFlagged && flagCount >= MINES_COUNT) {
       return;
     }
@@ -165,28 +164,54 @@ const Minesweeper = () => {
     newBoard[row][col].isFlagged = !newBoard[row][col].isFlagged;
     setBoard(newBoard);
     setFlagCount(flagCount + (newBoard[row][col].isFlagged ? 1 : -1));
-
+    
+    // 檢查是否所有炸彈都插上了旗子
     checkWin(newBoard);
   };
 
   const checkWin = (currentBoard) => {
     let unrevealedSafeCells = false;
+    let allFlagsCorrect = true;
+
     for (let row = 0; row < BOARD_SIZE; row++) {
       for (let col = 0; col < BOARD_SIZE; col++) {
         if (!currentBoard[row][col].isMine && !currentBoard[row][col].isRevealed) {
           unrevealedSafeCells = true;
-          break;
+        }
+        // 檢查每顆地雷是否正確放置旗子
+        if (currentBoard[row][col].isMine && !currentBoard[row][col].isFlagged) {
+          allFlagsCorrect = false;
         }
       }
     }
-    if (!unrevealedSafeCells) {
+
+    if (!unrevealedSafeCells && allFlagsCorrect) {
       setWin(true);
     }
   };
 
-  useEffect(() => {
-    initializeBoard();
-  }, []);
+  const handleCellClick = (row, col) => {
+    if (gameOver || win) return;
+
+    const cell = board[row][col];
+    
+    if (isFlagMode) {
+      toggleFlag(row, col);
+    } else {
+      if (cell.isRevealed && cell.neighborMines > 0) {
+        handleNumberClick(row, col);
+      } else {
+        revealCell(row, col);
+      }
+    }
+  };
+
+  const handleLongPress = (row, col, e) => {
+    e.preventDefault();
+    if (!gameOver && !win) {
+      toggleFlag(row, col);
+    }
+  };
 
   const getCellContent = (cell) => {
     if (!cell.isRevealed) {
@@ -216,36 +241,70 @@ const Minesweeper = () => {
     return style;
   };
 
+  useEffect(() => {
+    initializeBoard();
+  }, []);
+
   return (
-    <div className="flex flex-col items-center p-4 bg-gray-800 w-full h-full justify-center">
-            <h1 className="text-4xl font-bold mb-6">踩地雷</h1>
-      <div className="mb-4 flex gap-4 items-center justify-center">
+    <div className="flex flex-col items-center p-4 bg-gray-800 min-h-screen w-full">
+      <h1 className="text-4xl font-bold mb-6 text-white">踩地雷</h1>
+      
+      <div className="mb-4 flex flex-wrap gap-4 items-center justify-center">
         <button 
           onClick={initializeBoard}
           className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
         >
           重新開始
         </button>
-        <div className="text-lg flex items-center gap-2">
+        
+        <button 
+          onClick={() => setIsFlagMode(!isFlagMode)}
+          className={`px-4 py-2 rounded flex items-center gap-2 
+            ${isFlagMode ? 'bg-red-400 text-white' : 'bg-gray-300 text-gray-700'}`}
+        >
+          <Flag /> {isFlagMode ? '插旗模式' : '點開模式'}
+        </button>
+        
+        <div className="text-lg flex items-center gap-2 text-white">
           剩餘旗子: <Flag /> {MINES_COUNT - flagCount}
         </div>
-        {gameOver && <div className="text-red-500 text-lg">遊戲結束!</div>}
-        {win && <div className="text-green-500 text-lg">恭喜獲勝!</div>}
       </div>
+
+      {(gameOver || win) && (
+        <div className={`text-lg mb-4 ${gameOver ? 'text-red-500' : 'text-green-500'}`}>
+          {gameOver ? '遊戲結束!' : '恭喜獲勝!'}
+        </div>
+      )}
       
-      <div className="inline-block border-2 border-gray-400">
+      <div className="inline-block border-2 border-gray-400 touch-none">
         {board.map((row, rowIndex) => (
           <div key={rowIndex} className="flex">
             {row.map((cell, colIndex) => (
               <div
                 key={colIndex}
-                className={getCellStyle(cell)}
-                onClick={() => cell.isRevealed && cell.neighborMines > 0 
-                  ? handleNumberClick(rowIndex, colIndex) 
-                  : revealCell(rowIndex, colIndex)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  toggleFlag(rowIndex, colIndex);
+                className={`
+                  ${getCellStyle(cell)}
+                  touch-none
+                  ${isFlagMode && !cell.isRevealed ? 'bg-red-200 hover:bg-red-300' : ''}
+                `}
+                onClick={() => handleCellClick(rowIndex, colIndex)}
+                onContextMenu={(e) => handleLongPress(rowIndex, colIndex, e)}
+                onTouchStart={(e) => {
+                  const touch = e.touches[0];
+                  const element = e.target;
+                  const startTime = new Date().getTime();
+                  
+                  const longPressTimer = setTimeout(() => {
+                    handleLongPress(rowIndex, colIndex, e);
+                  }, 500);
+
+                  element.addEventListener('touchend', () => {
+                    clearTimeout(longPressTimer);
+                    const endTime = new Date().getTime();
+                    if (endTime - startTime < 500) {
+                      handleCellClick(rowIndex, colIndex);
+                    }
+                  }, { once: true });
                 }}
               >
                 {getCellContent(cell)}
@@ -253,6 +312,12 @@ const Minesweeper = () => {
             ))}
           </div>
         ))}
+      </div>
+
+      <div className="mt-4 text-gray-300 text-sm">
+        <p>電腦操作：左鍵點開，右鍵插旗</p>
+        <p>手機操作：單點點開，長按插旗</p>
+        <p>或使用上方按鈕切換模式</p>
       </div>
     </div>
   );
